@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>SphereReactionDiffusion_Li Chen_12/April/2016</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				background-color: #1e1e1e;
+				margin: 0;
+				overflow: hidden;
+			}
+
+		</style>
+
+	</head>
+	<body>
+
+		<!-- libraries from 3JS -->
+		<script src="src/3JS/three.min.js"></script>
+		<script src="src/3JS/Projector.js"></script>
+		<script src="src/3JS/CanvasRenderer.js"></script>
+		<script src="src/3JS/OBJLoader.js"></script>
+		<script src="src/3JS/PLYLoader.js"></script>
+		<script src="src/3JS/stats.min.js"></script>
+		<script src="src/3JS/TrackballControls.js"></script>
+		<script src="src/3JS/OrbitControls.js"></script>
+		<script src="src/3JS/material.js"></script>
+		<script src="src/3JS/TransformControls.js"></script>
+		<script src="src/3JS/DragControls.js"></script>
+
+
+
+		<!-- libraries from online resources -->
+		<script src="src/Others/rainbowvis.js"></script>
+		<script src="src/Others/dat.gui.min.js"></script>
+		<script src="src/Others/three-text2d.min.js"></script>
+		<script src="src/Others/jquery-1.12.2.min.js"></script>
+		<script src="src/Others/jquery-ui.min.js"></script>
+
+		<!-- libraries created by me here -->
+		<script src="src/LI/Visualization.js"></script>
+		<script src="src/LI/CreateObjects.js"></script>
+
+		<script src="src/LI/colors.js"></script>
+		<script src="src/LI/bufferGeometry.js"></script>
+		<script src="src/LI/gpuComputing.js"></script>
+		<script src="src/LI/environment.js"></script>
+		<script src="src/LI/Menu.js"></script>
+
+		<!-- main program -->
+		<script src="main.js"></script>
+
+
+
+		<!-- shader -->
+
+		<script type="x-shader/x-vertex" id="vertexshader">
+			uniform float amplitude;
+			attribute float size;
+			attribute vec3 customColor;
+			varying vec3 vColor;
+			void main() {
+				vColor = customColor;
+				vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+				gl_PointSize = 1.0 * ( 300.0 / -mvPosition.z );
+				gl_Position = projectionMatrix * mvPosition;
+			}
+		</script>
+
+		<script type="x-shader/x-fragment" id="fragmentshader">
+			precision highp float;
+
+			uniform vec3 color;
+			uniform sampler2D texture;
+			varying vec3 vColor;
+			void main() {
+				gl_FragColor = vec4( color * vColor, 1.0 );
+				gl_FragColor = gl_FragColor * texture2D( texture, gl_PointCoord );
+			}
+		</script>
+
+		<script type="x-shader/x-vertex" id="screenVS">
+
+
+			 uniform sampler2D texture;
+			 varying vec2 vUv;
+
+   			 void main() {
+       			 vUv = uv;
+
+       			 float zUp = texture2D(texture, vUv).g*-50.0;
+
+       			 vec4 pos = vec4(position,1.0) + vec4(normal,0) * zUp ;
+
+       			 gl_Position =   projectionMatrix *
+                        modelViewMatrix *
+                        pos;
+			 }
+		</script>
+
+		<script type="x-shader/x-fragment" id="screenFS">
+			 uniform sampler2D texture;
+
+   			 varying vec2 vUv;
+
+
+
+   			    float r = texture2D(texture, vUv).r*0.5;
+   			    float g = texture2D(texture, vUv).g*0.5;
+
+				gl_FragColor = vec4(g-r,r-g,r-g,1.0);
+				//gl_FragColor = texture2D(texture, vUv);
+
+   			 }
+		</script>
+
+
+
+		<script type="x-shader/x-vertex" id="myvs">
+
+
+			varying vec2 vUv;
+
+   			 void main() {
+       			 vUv = uv;
+
+       			 gl_Position =   projectionMatrix *
+                        modelViewMatrix *
+                        vec4(position,1.0);
+			 }
+
+
+
+		</script>
+
+		<script type="x-shader/x-fragment" id="myfs">
+
+
+
+		     uniform sampler2D texture;
+		     uniform float stepX;
+		     uniform float stepY;
+		     uniform sampler2D originMap;
+		     uniform float Kill;
+		     uniform float Feed;
+
+   			 varying vec2 vUv;
+
+
+   			 void main() {
+
+
+
+
+        		vec2 uv = texture2D(texture, vUv).rg;
+
+				vec2 uv0;
+        		if( (vUv.r - stepX) <= 0.0) uv0 = texture2D(texture, vUv+vec2( 1.0-stepX, 0.0)).rg;
+                else uv0 = texture2D(texture, vUv+vec2(-stepX, 0.0)).rg;
+
+				vec2 uv1;
+                if( (vUv.r + stepX) >= 1.0) uv1 = texture2D(texture,vUv+ vec2( stepX - 1.0, 0.0)).rg;
+                else uv1 = texture2D(texture, vUv+vec2(stepX, 0.0)).rg;
+
+                vec2 uv2 = texture2D(texture, vUv+vec2(0.0, -stepY)).rg;
+                vec2 uv3 = texture2D(texture, vUv+vec2(0.0, stepY)).rg;
+
+                vec2 lapl = (uv0 + uv1 + uv2 + uv3 - 4.0*uv);//10485.76;
+
+                float deltaK = texture2D(originMap, vUv).g * 0.025;
+
+                float du = 0.3*lapl.r - uv.r*uv.g*uv.g + Feed*(1.0 - uv.r);
+                float dv = 0.07*lapl.g + uv.r*uv.g*uv.g - (Feed+Kill)*uv.g;
+
+                vec2 dst = 0.7*vec2(du, dv);
+
+
+				gl_FragColor = texture2D(texture, vUv);
+                gl_FragColor = gl_FragColor+vec4(dst, 0, 1.0);
+
+
+   			 }
+
+		</script>
+
+<script type="x-shader/x-vertex" id="phone">
+
+	#define PHONG
+	varying vec3 vLightFront;
+	uniform sampler2D RDtexture;
+	varying vec3 vViewPosition;
+#ifndef FLAT_SHADED
+	varying vec3 vNormal;
+#endif
+#define PI 3.14159
+#define PI2 6.28318
+#define RECIPROCAL_PI 0.31830988618
+#define RECIPROCAL_PI2 0.15915494
+#define LOG2 1.442695
+#define EPSILON 1e-6
+#define saturate(a) clamp( a, 0.0, 1.0 )
+#define whiteCompliment(a) ( 1.0 - saturate( a ) )
+float square( const in float x ) { return x*x; }
+float average( const in vec3 color ) { return dot( color, vec3( 0.3333 ) ); }
+struct IncidentLight {
+	vec3 color;
+	vec3 direction;
+	bool visible;
+};
+struct ReflectedLight {
+	vec3 directDiffuse;
+	vec3 directSpecular;
+	vec3 indirectDiffuse;
+	vec3 indirectSpecular;
+};
+struct GeometricContext {
+	vec3 position;
+	vec3 normal;
+	vec3 viewDir;
+};
+vec3 transformDirection( in vec3 dir, in mat4 matrix ) {
+	return normalize( ( matrix * vec4( dir, 0.0 ) ).xyz );
+}
+vec3 inverseTransformDirection( in vec3 dir, in mat4 matrix ) {
+	return normalize( ( vec4( dir, 0.0 ) * matrix ).xyz );
+}
+vec3 projectOnPlane(in vec3 point, in vec3 pointOnPlane, in vec3 planeNormal ) {
+	float distance = dot( planeNormal, point - pointOnPlane );
+	return - distance * planeNormal + point;
+}
+float sideOfPlane( in vec3 point, in vec3 pointOnPlane, in vec3 planeNormal ) {
+	return sign( dot( point - pointOnPlane, planeNormal ) );
+}
+vec3 linePlaneIntersect( in vec3 pointOnLine, in vec3 lineDirection, in vec3 pointOnPlane, in vec3 planeNormal ) {
+	return lineDirection * ( dot( planeNormal, pointOnPlane - pointOnLine ) / dot( planeNormal, lineDirection ) ) + pointOnLine;
+}
+vec3 inputToLinear( in vec3 a ) {
+	#ifdef GAMMA_INPUT
+		return pow( a, vec3( float( GAMMA_FACTOR ) ) );
+	#else
+		return a;
+	#endif
+}
+vec3 linearToOutput( in vec3 a ) {
+	#ifdef GAMMA_OUTPUT
+		return pow( a, vec3( 1.0 / float( GAMMA_FACTOR ) ) );
+	#else
+		return a;
+	#endif
+}
+
+#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+	varying vec2 vUv;
+	uniform vec4 offsetRepeat;
+#endif
+
+#if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )
+	attribute vec2 uv2;
+	varying vec2 vUv2;
+#endif
+#ifdef USE_DISPLACEMENTMAP
+	uniform sampler2D displacementMap;
+	uniform float displacementScale;
+	uniform float displacementBias;
+#endif
+
+#if defined( USE_ENVMAP ) && ! defined( USE_BUMPMAP ) && ! defined( USE_NORMALMAP ) && ! defined( PHONG ) && ! defined( STANDARD )
+	varying vec3 vReflect;
+	uniform float refractionRatio;
+#endif
+
+#ifdef USE_ENVMAP
+	varying vec3 vWorldPosition;
+#endif
+
+#ifdef USE_COLOR
+	varying vec3 vColor;
+#endif
+#ifdef USE_MORPHTARGETS
+	#ifndef USE_MORPHNORMALS
+	uniform float morphTargetInfluences[ 8 ];
+	#else
+	uniform float morphTargetInfluences[ 4 ];
+	#endif
+#endif
+#ifdef USE_SKINNING
+	uniform mat4 bindMatrix;
+	uniform mat4 bindMatrixInverse;
+	#ifdef BONE_TEXTURE
+		uniform sampler2D boneTexture;
+		uniform int boneTextureWidth;
+		uniform int boneTextureHeight;
+		mat4 getBoneMatrix( const in float i ) {
+			float j = i * 4.0;
+			float x = mod( j, float( boneTextureWidth ) );
+			float y = floor( j / float( boneTextureWidth ) );
+			float dx = 1.0 / float( boneTextureWidth );
+			float dy = 1.0 / float( boneTextureHeight );
+			y = dy * ( y + 0.5 );
+			vec4 v1 = texture2D( boneTexture, vec2( dx * ( x + 0.5 ), y ) );
+			vec4 v2 = texture2D( boneTexture, vec2( dx * ( x + 1.5 ), y ) );
+			vec4 v3 = texture2D( boneTexture, vec2( dx * ( x + 2.5 ), y ) );
+			vec4 v4 = texture2D( boneTexture, vec2( dx * ( x + 3.5 ), y ) );
+			mat4 bone = mat4( v1, v2, v3, v4 );
+			return bone;
+		}
+	#else
+		uniform mat4 boneGlobalMatrices[ MAX_BONES ];
+		mat4 getBoneMatrix( const in float i ) {
+			mat4 bone = boneGlobalMatrices[ int(i) ];
+			return bone;
+		}
+	#endif
+#endif
+
+#ifdef USE_SHADOWMAP
+	#if NUM_DIR_LIGHTS > 0
+		uniform mat4 directionalShadowMatrix[ NUM_DIR_LIGHTS ];
+		varying vec4 vDirectionalShadowCoord[ NUM_DIR_LIGHTS ];
+	#endif
+	#if NUM_SPOT_LIGHTS > 0
+		uniform mat4 spotShadowMatrix[ NUM_SPOT_LIGHTS ];
+		varying vec4 vSpotShadowCoord[ NUM_SPOT_LIGHTS ];
+	#endif
+	#if NUM_POINT_LIGHTS > 0
+		uniform mat4 pointShadowMatrix[ NUM_POINT_LIGHTS ];
+		varying vec4 vPointShadowCoord[ NUM_POINT_LIGHTS ];
+	#endif
+#endif
+
+#ifdef USE_LOGDEPTHBUF
+	#ifdef USE_LOGDEPTHBUF_EXT
+		varying float vFragDepth;
+	#endif
+	uniform float logDepthBufFC;
+#endif
+void main() {
+
+float zUp = texture2D(RDtexture, uv).g * -50.0;
+
+vec3 newPos = position + normal * zUp;
+
+
+#if defined( USE_MAP ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP ) || defined( USE_SPECULARMAP ) || defined( USE_ALPHAMAP ) || defined( USE_EMISSIVEMAP ) || defined( USE_ROUGHNESSMAP ) || defined( USE_METALNESSMAP )
+	vUv = uv * offsetRepeat.zw + offsetRepeat.xy;
+#endif
+#if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )
+	vUv2 = uv2;
+#endif
+#ifdef USE_COLOR
+	vColor.xyz = color.xyz;
+#endif
+
+vec3 objectNormal = vec3( normal );
+
+#ifdef USE_MORPHNORMALS
+	objectNormal += ( morphNormal0 - normal ) * morphTargetInfluences[ 0 ];
+	objectNormal += ( morphNormal1 - normal ) * morphTargetInfluences[ 1 ];
+	objectNormal += ( morphNormal2 - normal ) * morphTargetInfluences[ 2 ];
+	objectNormal += ( morphNormal3 - normal ) * morphTargetInfluences[ 3 ];
+#endif
+
+#ifdef USE_SKINNING
+	mat4 boneMatX = getBoneMatrix( skinIndex.x );
+	mat4 boneMatY = getBoneMatrix( skinIndex.y );
+	mat4 boneMatZ = getBoneMatrix( skinIndex.z );
+	mat4 boneMatW = getBoneMatrix( skinIndex.w );
+#endif
+#ifdef USE_SKINNING
+	mat4 skinMatrix = mat4( 0.0 );
+	skinMatrix += skinWeight.x * boneMatX;
+	skinMatrix += skinWeight.y * boneMatY;
+	skinMatrix += skinWeight.z * boneMatZ;
+	skinMatrix += skinWeight.w * boneMatW;
+	skinMatrix  = bindMatrixInverse * skinMatrix * bindMatrix;
+	objectNormal = vec4( skinMatrix * vec4( objectNormal, 0.0 ) ).xyz;
+#endif
+
+#ifdef FLIP_SIDED
+	objectNormal = -objectNormal;
+#endif
+vec3 transformedNormal = normalMatrix * objectNormal;
+
+#ifndef FLAT_SHADED
+	vNormal = normalize( transformedNormal );
+#endif
+
+vec3 transformed = vec3( newPos );
+
+#ifdef USE_DISPLACEMENTMAP
+	transformed += normal * ( texture2D( displacementMap, uv ).x * displacementScale + displacementBias );
+#endif
+
+#ifdef USE_MORPHTARGETS
+	transformed += ( morphTarget0 - newPos ) * morphTargetInfluences[ 0 ];
+	transformed += ( morphTarget1 - newPos ) * morphTargetInfluences[ 1 ];
+	transformed += ( morphTarget2 - newPos ) * morphTargetInfluences[ 2 ];
+	transformed += ( morphTarget3 - newPos ) * morphTargetInfluences[ 3 ];
+	#ifndef USE_MORPHNORMALS
+	transformed += ( morphTarget4 - newPos ) * morphTargetInfluences[ 4 ];
+	transformed += ( morphTarget5 - newPos ) * morphTargetInfluences[ 5 ];
+	transformed += ( morphTarget6 - newPos ) * morphTargetInfluences[ 6 ];
+	transformed += ( morphTarget7 - newPos ) * morphTargetInfluences[ 7 ];
+	#endif
+#endif
+
+#ifdef USE_SKINNING
+	vec4 skinVertex = bindMatrix * vec4( transformed, 1.0 );
+	vec4 skinned = vec4( 0.0 );
+	skinned += boneMatX * skinVertex * skinWeight.x;
+	skinned += boneMatY * skinVertex * skinWeight.y;
+	skinned += boneMatZ * skinVertex * skinWeight.z;
+	skinned += boneMatW * skinVertex * skinWeight.w;
+	skinned  = bindMatrixInverse * skinned;
+#endif
+
+#ifdef USE_SKINNING
+	vec4 mvPosition = modelViewMatrix * skinned;
+#else
+	vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
+#endif
+gl_Position = projectionMatrix * mvPosition;
+
+#ifdef USE_LOGDEPTHBUF
+	gl_Position.z = log2(max( EPSILON, gl_Position.w + 1.0 )) * logDepthBufFC;
+	#ifdef USE_LOGDEPTHBUF_EXT
+		vFragDepth = 1.0 + gl_Position.w;
+	#else
+		gl_Position.z = (gl_Position.z - 1.0) * gl_Position.w;
+	#endif
+#endif
+
+	vViewPosition = - mvPosition.xyz;
+#if defined( USE_ENVMAP ) || defined( PHONG ) || defined( STANDARD ) || defined( LAMBERT ) || defined ( USE_SHADOWMAP )
+	#ifdef USE_SKINNING
+		vec4 worldPosition = modelMatrix * skinned;
+	#else
+		vec4 worldPosition = modelMatrix * vec4( transformed, 1.0 );
+	#endif
+#endif
+
+#if defined( USE_ENVMAP ) && ! defined( USE_BUMPMAP ) && ! defined( USE_NORMALMAP ) && ! defined( PHONG ) && ! defined( STANDARD )
+	vec3 cameraToVertex = normalize( worldPosition.xyz - cameraPosition );
+	vec3 worldNormal = inverseTransformDirection( transformedNormal, viewMatrix );
+	#ifdef ENVMAP_MODE_REFLECTION
+		vReflect = reflect( cameraToVertex, worldNormal );
+	#else
+		vReflect = refract( cameraToVertex, worldNormal, refractionRatio );
+	#endif
+#endif
+
+#ifdef USE_ENVMAP
+	vWorldPosition = worldPosition.xyz;
+#endif
+
+#ifdef USE_SHADOWMAP
+	#if NUM_DIR_LIGHTS > 0
+	for ( int i = 0; i < NUM_DIR_LIGHTS; i ++ ) {
+		vDirectionalShadowCoord[ i ] = directionalShadowMatrix[ i ] * worldPosition;
+	}
+	#endif
+	#if NUM_SPOT_LIGHTS > 0
+	for ( int i = 0; i < NUM_SPOT_LIGHTS; i ++ ) {
+		vSpotShadowCoord[ i ] = spotShadowMatrix[ i ] * worldPosition;
+	}
+	#endif
+	#if NUM_POINT_LIGHTS > 0
+	for ( int i = 0; i < NUM_POINT_LIGHTS; i ++ ) {
+		vPointShadowCoord[ i ] = pointShadowMatrix[ i ] * worldPosition;
+	}
+	#endif
+#endif
+
+}
+
+
+</script>
+
+		<div  id = 'menu' style="visibility: hidden; position: absolute; left: 500px; top: 500px; width: 500px; background-color: aqua">
+			<div class="myContent">content</div>
+			<div class="myContent">content</div>
+			<div class="myContent">content</div>
+
+		</div>
+
+		<script>
+
+			createLocalMenu();
+
+			init();
+			animate();
+
+
+		</script>
+	</body>
+</html>
